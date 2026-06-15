@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">KeyFlux Gboard Customizer</string>
+    <string name="app_title">KeyFlux Gboard Customizer</string>
+    <string name="ignore_package_limit">Ignore Package Name Limit / تجاهل قيود اسم الحزمة</string>
+    <string name="log_switch">Enable Xposed Logs / تفعيل سجلات Xposed</string>
+    <string name="clipboard_capacity">Clipboard Capacity (items, default 10) / سعة الحافظة (عدد النصوص)</string>
+    <string name="clipboard_expire_time">Retention Time (ms, default 3 days) / مدة حفظ النصوص بالملي ثانية</string>
+    
+    <string name="section_clipboard">Clipboard Tweaks / حافظة النصوص</string>
+    <string name="section_features">Advanced Smart Features / ميزات متقدمة ذكية</string>
+    <string name="section_layout">Layout &amp; Sizing / المظهر والتنسيق</string>
+    <string name="section_advanced">Advanced Custom Flags / أعلام مخصصة متقدمة</string>
+    <string name="section_global">Global settings / إعدادات عامة</string>
+
+    <string name="enable_ai">Enable Smart Reply &amp; Smart Compose / تفعيل الرد الذكي والكتابة الذكية</string>
+    <string name="enable_grammar">Enable Grammar Checker &amp; Proofread / تفعيل مدقق القواعد الإملائية</string>
+    <string name="enable_floating">Enable Floating Keyboard (Auto) / تفعيل وضع الكيبورد العائم</string>
+    <string name="enable_emoji_kitchen">Enable Emoji Kitchen Browse / تفعيل استعراض مطبخ الإيموجي</string>
+    <string name="enable_access_point">Redesign Access Point Menu / إعادة تصميم قائمة الميزات</string>
+    <string name="enable_amoled">Enable AMOLED Black Theme / تفعيل مظهر AMOLED الأسود</string>
+    <string name="allow_metered_downloads">Allow Mobile Data Downloads / السماح بالتنزيل عبر بيانات الهاتف</string>
+
+    <string name="custom_true_flags">Force True Flags (comma-separated) / أعلام إجبارية صحيحة (مفصولة بفاصلة)</string>
+    <string name="custom_false_flags">Force False Flags (comma-separated) / أعلام إجبارية خاطئة (مفصولة بفاصلة)</string>
+
+    <string name="apply">Save and Restart Gboard / حفظ وإعادة تشغيل الكيبورد</string>
+    <string name="restart_hint">Changes require restarting Gboard. First time requires phone restart.\nتتطلب التغييرات إعادة تشغيل Gboard. المرة الأولى تتطلب إعادة تشغيل الهاتف.</string>
+</resources>

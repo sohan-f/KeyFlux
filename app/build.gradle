@@ -1,0 +1,68 @@
+import java.text.SimpleDateFormat
+
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+}
+
+android {
+    namespace 'com.keyflux'
+    compileSdk 31
+
+    defaultConfig {
+        applicationId "com.keyflux"
+        minSdk 23
+        targetSdk 31
+        versionCode 10
+        versionName "1.3.0"
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    lintOptions {
+        disable 'ExpiredTargetSdkVersion'
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            def versionName = variant.versionName
+            def versionCode = variant.versionCode
+            def buildType = variant.buildType.name
+            def appName = "KeyFlux"
+
+            def date = new Date()
+            def sdf = new SimpleDateFormat("yyyyMMdd_HHmmss")
+            sdf.setTimeZone(TimeZone.getTimeZone("UTC"))
+            def formattedDate = sdf.format(date) + "Z"
+
+            def apkName = "${appName}_${buildType}_${versionName}_${versionCode}_${formattedDate}.apk"
+            output.outputFileName = apkName
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.7.0'
+    compileOnly files('libs/api-82.jar')
+    implementation 'org.luckypray:dexkit:2.2.0'
+}
