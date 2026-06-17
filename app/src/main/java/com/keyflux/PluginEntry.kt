@@ -20,6 +20,7 @@ import de.robv.android.xposed.XposedHelpers.findAndHookMethod
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.wrap.DexMethod
+import kotlinx.coroutines.*
 import java.lang.System.loadLibrary
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -44,18 +45,18 @@ class PluginEntry : IXposedHookLoadPackage {
     }
 
     // Dynamic preference map queried via local SharedPreferences
-    private var prefsMap = HashMap<String, Any>()
+    internal var prefsMap = HashMap<String, Any>()
 
     @Volatile
-    private var isCurrentFieldSecure: Boolean = false
+    internal var isCurrentFieldSecure: Boolean = false
 
-    private fun getSafeSharedPreferences(context: Context, name: String): SharedPreferences {
+    internal fun getSafeSharedPreferences(context: Context, name: String): SharedPreferences {
         val safeContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
             val de = context.createDeviceProtectedStorageContext()
             try {
                 de.moveSharedPreferencesFrom(context, name)
             } catch (e: Exception) {
-                // Ignore migration exceptions if already migrated or empty
+                log("Failed to migrate old preferences: ${e.message}")
             }
             de
         } else {
@@ -64,7 +65,7 @@ class PluginEntry : IXposedHookLoadPackage {
         return safeContext.getSharedPreferences(name, Context.MODE_PRIVATE)
     }
 
-    private fun loadPreferences(context: Context) {
+    internal fun loadPreferences(context: Context) {
         try {
             val sp = getSafeSharedPreferences(context, "keyflux_prefs")
             val newMap = HashMap<String, Any>()
@@ -80,67 +81,80 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private val clipboardTextSize: Int
+    internal val clipboardTextSize: Int
         get() = prefsMap["clip_size"] as? Int ?: DEFAULT_NUM
 
-    private val clipboardTextTime: Long
+    internal val clipboardTextTime: Long
         get() {
             val days = prefsMap["clip_days"] as? Int ?: 3
             if (days <= 0) return -1L
             return days.toLong() * 1000 * 60 * 60 * 24
         }
 
-    private val logSwitch: Boolean
-        get() = prefsMap["log_switch"] as? Boolean ?: false
+    internal val logSwitch: Boolean
+        get() = true
 
-    private val enableAi: Boolean
+    internal val enableAi: Boolean
         get() = prefsMap["enable_ai"] as? Boolean ?: false
 
-    private val enableGrammar: Boolean
+    internal val enableGrammar: Boolean
         get() = prefsMap["enable_grammar"] as? Boolean ?: false
 
-    private val enableMultilingual: Boolean
+    internal val enableMultilingual: Boolean
         get() = prefsMap["enable_multilingual"] as? Boolean ?: false
 
-    private val enableFloating: Boolean
+    internal val enableFloating: Boolean
         get() = prefsMap["enable_floating"] as? Boolean ?: false
 
-    private val enableEmojiKitchen: Boolean
+    internal val enableEmojiKitchen: Boolean
         get() = prefsMap["enable_emoji_kitchen"] as? Boolean ?: false
 
-    private val enableAccessPoint: Boolean
+    internal val enableAccessPoint: Boolean
         get() = prefsMap["enable_access_point"] as? Boolean ?: false
 
-    private val meteredDownloads: Boolean
+    internal val meteredDownloads: Boolean
         get() = prefsMap["measured_downloads"] as? Boolean ?: prefsMap["metered_downloads"] as? Boolean ?: false
 
-    private val enableAmoled: Boolean
+    internal val enableAmoled: Boolean
         get() = prefsMap["enable_amoled"] as? Boolean ?: false
 
-    private val forceIncognito: Boolean
+    internal val forceIncognito: Boolean
         get() = prefsMap["force_incognito"] as? Boolean ?: false
 
-    private val enablePrivacy: Boolean
+    internal val enablePrivacy: Boolean
         get() = prefsMap["enable_privacy"] as? Boolean ?: false
 
-    private val secureClipboard: Boolean
+    internal val secureClipboard: Boolean
         get() = prefsMap["secure_clipboard"] as? Boolean ?: false
 
+    internal val enableInlineSuggestions: Boolean
+        get() = prefsMap["enable_inline_suggestions"] as? Boolean ?: false
 
+    internal val enableProactiveEmoji: Boolean
+        get() = prefsMap["enable_proactive_emoji"] as? Boolean ?: false
 
-    private fun log(str: String) {
+    internal val enableClipboardChips: Boolean
+        get() = prefsMap["enable_clipboard_chips"] as? Boolean ?: false
+
+    internal val enableTfliteEngine: Boolean
+        get() = prefsMap["enable_tflite_engine"] as? Boolean ?: false
+
+    internal val enableFastAccess: Boolean
+        get() = prefsMap["enable_fast_access"] as? Boolean ?: false
+
+    internal fun log(str: String) {
         if (logSwitch) {
             XposedBridge.log("$TAG$str")
         }
     }
 
-    private fun logAlways(str: String) {
+    internal fun logAlways(str: String) {
         XposedBridge.log("$TAG$str")
     }
 
-    private var isInitialized = false
+    internal var isInitialized = false
 
-    private fun initializeKeyFlux(context: Context, classLoader: ClassLoader) {
+    internal fun initializeKeyFlux(context: Context, classLoader: ClassLoader) {
         if (isInitialized) return
         isInitialized = true
         try {
@@ -153,6 +167,7 @@ class PluginEntry : IXposedHookLoadPackage {
             val versionCode = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionCode
             } catch (e: Exception) {
+                log("Failed to get package info for version code: ${e.message}")
                 -1
             }
             val gboardVersion = sp.getInt(spKeyVersion, -1)
@@ -168,35 +183,33 @@ class PluginEntry : IXposedHookLoadPackage {
                 }
             }
 
-            val resolvedMethod = if (isSameVersion && dexMethodReadConfig != null) {
+            if (isSameVersion && dexMethodReadConfig != null) {
                 log("Using cached ReadConfig method: ${dexMethodReadConfig.serialize()}")
-                dexMethodReadConfig
+                FlagsManager.hook(this@PluginEntry, classLoader, dexMethodReadConfig)
             } else {
-                log("Resolving ReadConfig method via DexKit (version changed or cache miss)...")
-                val dexBridge = try {
-                    DexKitBridge.create(classLoader, true)
-                } catch (t: Throwable) {
-                    log("Failed to initialize DexKitBridge: ${t.message}")
-                    null
-                }
-                val method = dexBridge?.let { findReadConfigMethod(it) }
-                if (method != null) {
-                    sp.edit {
-                        putInt(spKeyVersion, versionCode)
-                        putString(spKeyMethodReadConfig, method.serialize())
+                CoroutineScope(Dispatchers.Default).launch {
+                    log("Resolving ReadConfig method via DexKit (version changed or cache miss)...")
+                    val dexBridge = try {
+                        DexKitBridge.create(classLoader, true)
+                    } catch (t: Throwable) {
+                        log("Failed to initialize DexKitBridge: ${t.message}")
+                        null
                     }
-                    log("ReadConfig method resolved and cached: ${method.serialize()}")
+                    val method = dexBridge?.let { findReadConfigMethod(it) }
+                    if (method != null) {
+                        sp.edit {
+                            putInt(spKeyVersion, versionCode)
+                            putString(spKeyMethodReadConfig, method.serialize())
+                        }
+                        log("ReadConfig method resolved and cached: ${method.serialize()}")
+                        FlagsManager.hook(this@PluginEntry, classLoader, method)
+                    }
+                    try {
+                        dexBridge?.close()
+                    } catch (t: Throwable) {
+                        log("Failed to close DexKitBridge: ${t.message}")
+                    }
                 }
-                try {
-                    dexBridge?.close()
-                } catch (t: Throwable) {
-                    // Ignore closing issues
-                }
-                method
-            }
-
-            resolvedMethod?.let {
-                hookReadConfig(it, classLoader)
             }
         } catch (t: Throwable) {
             logAlways("Error during initializeKeyFlux: ${t.message}")
@@ -256,261 +269,12 @@ class PluginEntry : IXposedHookLoadPackage {
             logAlways("Failed to hook Application#onCreate: ${t.message}")
         }
 
-        // 3. Hook ClipboardContentProvider#onCreate
-        tryHook("com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider#onCreate") { _ ->
-            findAndHookMethod(
-                "com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider",
-                classLoader,
-                "onCreate",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        try {
-                            val context = XposedHelpers.callMethod(param.thisObject, "getContext") as? Context ?: return
-                            initializeKeyFlux(context, classLoader)
-                        } catch (t: Throwable) {
-                            logAlways("Error during ClipboardContentProvider#onCreate hook execution: ${t.message}")
-                        }
-                    }
-                }
-            )
-        }
-
-        tryHook("com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider#query") { _ ->
-            findAndHookMethod(
-                "com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider",
-                classLoader,
-                "query",
-                Uri::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                Array<String>::class.java,
-                String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            if (param.args.size < 5) return
-                            val arg0 = param.args[0] as? Uri ?: return
-                            val arg1 = param.args[1] as? Array<*>
-                            val arg2 = param.args[2]?.toString() ?: ""
-                            val arg3 = param.args[3] as? Array<String>
-                            val arg4 = param.args[4]?.toString()
-                            
-                            log("query, arg0=$arg0, arg1=${arg1?.joinToString()}, arg2=$arg2, arg3=${arg3?.joinToString()}, arg4=$arg4")
-
-                            val indexOf = arg2.indexOf("timestamp >= ?")
-                            if (indexOf != -1) {
-                                var indexOfWen = 0
-                                StringBuilder(arg2).forEachIndexed { index, c ->
-                                    if (index >= indexOf) return@forEachIndexed
-                                    if (c == '?') {
-                                        indexOfWen++
-                                    }
-                                }
-
-                                val textTime = clipboardTextTime
-                                val afterTimeStamp = if (textTime < 0L) 0L else (System.currentTimeMillis() - textTime)
-                                arg3?.let {
-                                    if (indexOfWen < it.size) {
-                                        it[indexOfWen] = afterTimeStamp.toString()
-                                        param.args[3] = it
-                                        log(
-                                            "Modifying time limit, " + if (textTime < 0L) "Forever" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT).format(Date(afterTimeStamp))
-                                        )
-                                    }
-                                }
-                            }
-                            if (arg4 == "timestamp DESC limit 5") {
-                                param.args[4] = "timestamp DESC limit $clipboardTextSize"
-                                log("Modifying size limit, $clipboardTextSize")
-                            }
-                        } catch (t: Throwable) {
-                            log("Error in ClipboardContentProvider query hook: ${t.message}")
-                        }
-                    }
-
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        try {
-                            val cursor = param.result as? Cursor
-                            log("query end, size=${cursor?.count ?: "null"}")
-                        } catch (t: Throwable) {
-                            log("Error in ClipboardContentProvider query afterHookedMethod: ${t.message}")
-                        }
-                    }
-                }
-            )
-        }
-
-        tryHook("com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider#insert") { _ ->
-            findAndHookMethod(
-                "com.google.android.apps.inputmethod.libs.clipboard.ClipboardContentProvider",
-                classLoader,
-                "insert",
-                Uri::class.java,
-                ContentValues::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            if (!secureClipboard) return
-                            val values = param.args[1] as? ContentValues ?: return
-                            if (isCurrentFieldSecure) {
-                                log("Blocking clipboard insertion: Copied from secure/password field")
-                                param.result = null
-                                return
-                            }
-                            for (key in values.keySet()) {
-                                val valueStr = values.getAsString(key) ?: continue
-                                if (isSensitiveText(valueStr)) {
-                                    log("Blocking clipboard insertion: Matches OTP/sensitive text pattern")
-                                    param.result = null
-                                    return
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            log("Error in ClipboardContentProvider insert hook: ${t.message}")
-                        }
-                    }
-                }
-            )
-        }
-
-        tryHook("InputMethodService#onStartInput") {
-            findAndHookMethod(
-                "android.inputmethodservice.InputMethodService",
-                classLoader,
-                "onStartInput",
-                android.view.inputmethod.EditorInfo::class.java,
-                Boolean::class.javaPrimitiveType,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            val editorInfo = param.args[0] as? android.view.inputmethod.EditorInfo ?: return
-                            val inputType = editorInfo.inputType
-                            val isPassword = (inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT &&
-                                ((inputType and android.text.InputType.TYPE_MASK_VARIATION) == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-                                 (inputType and android.text.InputType.TYPE_MASK_VARIATION) == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
-                                 (inputType and android.text.InputType.TYPE_MASK_VARIATION) == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
-                            val isNumberPassword = (inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_NUMBER &&
-                                (inputType and android.text.InputType.TYPE_MASK_VARIATION) == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-                            isCurrentFieldSecure = isPassword || isNumberPassword
-                            if (forceIncognito) {
-                                editorInfo.imeOptions = editorInfo.imeOptions or android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
-                            }
-                        } catch (t: Throwable) {
-                            log("Error in onStartInput hook: ${t.message}")
-                        }
-                    }
-                }
-            )
-        }
-
-        tryHook("HashSet") { _ ->
-            findAndHookMethod(
-                HashSet::class.java,
-                "size",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            val set = param.thisObject as? HashSet<*> ?: return
-                            if (set.isEmpty()) return
-                            val first = set.iterator().run { if (hasNext()) next() else null }
-                            val firstClassName = first?.javaClass?.name
-                            if (firstClassName == "j\$.time.Instant" || firstClassName == "java.time.Instant") {
-                                val map = XposedHelpers.getObjectField(set, "map") as? Map<*, *>
-                                if (map != null && map.size <= clipboardTextSize) {
-                                    param.result = 5
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            // Suppress exceptions to avoid crash cascade in JVM critical collections
-                        }
-                    }
-                }
-            )
-        }
-
-        tryHook("Resources#getColor(Int)") {
-            val m = XposedHelpers.findMethodExact(
-                "android.content.res.Resources",
-                classLoader,
-                "getColor",
-                Int::class.javaPrimitiveType
-            )
-            XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (!enableAmoled) return
-                    val res = param.thisObject as? Resources ?: return
-                    val id = param.args[0] as Int
-                    val result = param.result as Int
-                    overrideColor(res, id, result)?.let { param.result = it }
-                }
-            })
-        }
-
-        tryHook("Resources#getColor(Int, Theme)") {
-            val m = XposedHelpers.findMethodExact(
-                "android.content.res.Resources",
-                classLoader,
-                "getColor",
-                Int::class.javaPrimitiveType,
-                Resources.Theme::class.java
-            )
-            XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (!enableAmoled) return
-                    val res = param.thisObject as? Resources ?: return
-                    val id = param.args[0] as Int
-                    val result = param.result as Int
-                    overrideColor(res, id, result)?.let { param.result = it }
-                }
-            })
-        }
-
-        tryHook("TypedArray#getColor(Int, Int)") {
-            val m = XposedHelpers.findMethodExact(
-                "android.content.res.TypedArray",
-                classLoader,
-                "getColor",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            )
-            XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (!enableAmoled) return
-                    val typedArray = param.thisObject as? TypedArray ?: return
-                    val index = param.args[0] as Int
-                    val result = param.result as Int
-                    val colorId = typedArray.getResourceId(index, 0)
-                    if (colorId != 0) {
-                        val res = typedArray.resources ?: return
-                        overrideColor(res, colorId, result)?.let { param.result = it }
-                    }
-                }
-            })
-        }
-
-        tryHook("com.google.android.apps.inputmethod.latin.preference.SettingsActivity#onCreate") {
-            findAndHookMethod(
-                "com.google.android.apps.inputmethod.latin.preference.SettingsActivity",
-                classLoader,
-                "onCreate",
-                android.os.Bundle::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            val activity = param.thisObject as android.app.Activity
-                            val actClassLoader = activity.classLoader
-                            log("SettingsActivity onCreate triggered, hooking preference fragments...")
-                            hookPreferenceFragments(actClassLoader)
-                        } catch (t: Throwable) {
-                            logAlways("Error in SettingsActivity onCreate hook: ${t.message}")
-                        }
-                    }
-                }
-            )
-        }
+        ClipboardHooker.hook(this, classLoader)
+        PreferenceHooker.hook(this, classLoader)
+        ThemeHooker.hook(this, classLoader)
     }
 
-    private fun overrideColor(res: Resources, id: Int, originalColor: Int): Int? {
+    internal fun overrideColor(res: Resources, id: Int, originalColor: Int): Int? {
         try {
             val entryName = runCatching { res.getResourceEntryName(id) }.getOrNull() ?: return null
             val packageName = runCatching { res.getResourcePackageName(id) }.getOrNull() ?: ""
@@ -542,12 +306,12 @@ class PluginEntry : IXposedHookLoadPackage {
                 }
             }
         } catch (t: Throwable) {
-            // Ignore resource errors safely
+            log("Failed to extract color: ${t.message}")
         }
         return null
     }
 
-    private fun tryHook(logStr: String, unit: ((name: String) -> Unit)) {
+    internal fun tryHook(logStr: String, unit: ((name: String) -> Unit)) {
         try {
             unit(logStr)
         } catch (e: NoSuchMethodError) {
@@ -559,7 +323,7 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun findReadConfigMethod(bridge: DexKitBridge): DexMethod? {
+    internal suspend fun findReadConfigMethod(bridge: DexKitBridge): DexMethod? = coroutineScope {
         val queries = listOf(
             // Primary Query: "Invalid flag: "
             {
@@ -599,31 +363,42 @@ class PluginEntry : IXposedHookLoadPackage {
             }
         )
 
-        for ((index, query) in queries.withIndex()) {
-            try {
-                val methods = query()
-                if (methods.isNotEmpty()) {
-                    log("ReadConfig found via query index $index. Matches count: ${methods.size}")
-                    if (methods.size > 1) {
-                        log("Multiple ReadConfig matches found: ${methods.joinToString { it.toDexMethod().serialize() }}. Selecting first match.")
+        val deferredResults = queries.mapIndexed { index, query ->
+            async(Dispatchers.Default) {
+                try {
+                    val methods = query()
+                    if (methods.isNotEmpty()) {
+                        log("ReadConfig found via query index $index. Matches count: ${methods.size}")
+                        if (methods.size > 1) {
+                            log("Multiple ReadConfig matches found: ${methods.joinToString { it.toDexMethod().serialize() }}. Selecting first match.")
+                        }
+                        methods.first().toDexMethod()
+                    } else {
+                        null
                     }
-                    return methods.first().toDexMethod()
+                } catch (t: Throwable) {
+                    log("Query index $index threw an exception: ${t.message}")
+                    null
                 }
-            } catch (t: Throwable) {
-                log("Query index $index threw an exception: ${t.message}")
             }
         }
 
+        val results = deferredResults.awaitAll()
+        for (res in results) {
+            if (res != null) return@coroutineScope res
+        }
+
         log("All DexKit ReadConfig resolver queries exhausted. Could not resolve flag reader method.")
-        return null
+        null
     }
 
-    private fun getFlagName(obj: Any): String? {
+    internal fun getFlagName(obj: Any): String? {
         try {
             // First try "a" as the default/most common obfuscated name
             val nameField = try {
                 XposedHelpers.getObjectField(obj, "a")
             } catch (t: Throwable) {
+                log("Failed to execute getFlagName: ${t.message}")
                 null
             }
             if (nameField is String) {
@@ -650,19 +425,35 @@ class PluginEntry : IXposedHookLoadPackage {
         return null
     }
 
-    private fun isSensitiveText(text: String): Boolean {
+    internal fun isSensitiveText(text: String): Boolean {
         val trimmed = text.trim()
+        
+        // 4 to 8 digits (OTP or PIN)
         if (trimmed.length in 4..8 && trimmed.all { it.isDigit() }) {
             return true
         }
-        val lower = trimmed.lowercase(Locale.ROOT)
-        if (lower.contains("otp") || lower.contains("verification") || lower.contains("رمز التحقق") || lower.contains("رمز تفعيل")) {
+        
+        // Potential Credit Card or Bank Account (12 to 19 digits, ignoring spaces/dashes)
+        val digitsOnly = trimmed.replace(Regex("[\\s-]"), "")
+        if (digitsOnly.length in 12..19 && digitsOnly.all { it.isDigit() }) {
             return true
         }
+
+        val lower = trimmed.lowercase(Locale.ROOT)
+        val sensitiveKeywords = listOf(
+            "otp", "verification", "رمز التحقق", "رمز تفعيل",
+            "password", "كلمة المرور", "كلمة السر",
+            "pin", "token", "secret", "auth", "2fa", "mfa", "passcode",
+            "رقم سري", "رمز الدخول", "توثيق", "كود"
+        )
+        if (sensitiveKeywords.any { lower.contains(it) }) {
+            return true
+        }
+        
         return false
     }
 
-    private fun savePreferenceToProvider(context: Context, key: String, value: Any) {
+    internal fun savePreferenceToProvider(context: Context, key: String, value: Any) {
         try {
             val sp = getSafeSharedPreferences(context, "keyflux_prefs")
             sp.edit().apply {
@@ -681,37 +472,42 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private var preferenceHooksApplied = false
+    internal var preferenceHooksApplied = false
 
     // Reflection helper wrappers for handling Gboard preference library obfuscation
-    private fun getPreferenceScreen(fragment: Any): Any? {
+    internal fun getPreferenceScreen(fragment: Any): Any? {
         return try {
             XposedHelpers.callMethod(fragment, "getPreferenceScreen")
         } catch (t: Throwable) {
+            log("getPreferenceScreen unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated")
             try {
                 XposedHelpers.callMethod(fragment, "o")
             } catch (e: Throwable) {
+                log("Failed to execute getPreferenceScreen: ${e.message}")
                 null
             }
         }
     }
 
-    private fun getFragmentContext(fragment: Any): Context? {
+    internal fun getFragmentContext(fragment: Any): Context? {
         return try {
             XposedHelpers.callMethod(fragment, "getContext") as? Context
         } catch (t: Throwable) {
+            log("getContext unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated")
             try {
                 XposedHelpers.callMethod(fragment, "x") as? Context
             } catch (e: Throwable) {
+                log("Failed to execute getFragmentContext: ${e.message}")
                 null
             }
         }
     }
 
-    private fun findPreference(group: Any, key: String): Any? {
+    internal fun findPreference(group: Any, key: String): Any? {
         return try {
             XposedHelpers.callMethod(group, "findPreference", key)
         } catch (t: Throwable) {
+            log("findPreference unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated t")
             try {
                 XposedHelpers.callMethod(group, "t", key)
             } catch (e: Throwable) {
@@ -729,11 +525,12 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun addPreference(group: Any, preference: Any): Boolean {
+    internal fun addPreference(group: Any, preference: Any): Boolean {
         return try {
             XposedHelpers.callMethod(group, "addPreference", preference)
             true
         } catch (t: Throwable) {
+            log("addPreference unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated am")
             try {
                 XposedHelpers.callMethod(group, "am", preference)
                 true
@@ -744,10 +541,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun getPreferenceCount(group: Any): Int {
+    internal fun getPreferenceCount(group: Any): Int {
         return try {
             XposedHelpers.callMethod(group, "getPreferenceCount") as Int
         } catch (t: Throwable) {
+            log("getPreferenceCount unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated k")
             try {
                 XposedHelpers.callMethod(group, "k") as Int
             } catch (e: Throwable) {
@@ -757,10 +555,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun getPreference(group: Any, index: Int): Any? {
+    internal fun getPreference(group: Any, index: Int): Any? {
         return try {
             XposedHelpers.callMethod(group, "getPreference", index)
         } catch (t: Throwable) {
+            log("getPreference unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated o")
             try {
                 XposedHelpers.callMethod(group, "o", index)
             } catch (e: Throwable) {
@@ -770,22 +569,25 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun getPreferenceKey(pref: Any): String? {
+    internal fun getPreferenceKey(pref: Any): String? {
         return try {
             XposedHelpers.callMethod(pref, "getKey") as? String
         } catch (t: Throwable) {
+            log("getKey unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated r")
             try {
                 XposedHelpers.getObjectField(pref, "r") as? String
             } catch (e: Throwable) {
+                log("Failed to execute getPreferenceKey: ${e.message}")
                 null
             }
         }
     }
 
-    private fun setPreferenceKey(pref: Any, key: String) {
+    internal fun setPreferenceKey(pref: Any, key: String) {
         try {
             XposedHelpers.callMethod(pref, "setKey", key)
         } catch (t: Throwable) {
+            log("setKey unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated O")
             try {
                 XposedHelpers.callMethod(pref, "O", key)
             } catch (e: Throwable) {
@@ -798,10 +600,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setPreferenceTitle(pref: Any, title: CharSequence) {
+    internal fun setPreferenceTitle(pref: Any, title: CharSequence) {
         try {
             XposedHelpers.callMethod(pref, "setTitle", title)
         } catch (t: Throwable) {
+            log("setTitle unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated U")
             try {
                 XposedHelpers.callMethod(pref, "U", title)
             } catch (e: Throwable) {
@@ -810,10 +613,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setPreferenceSummary(pref: Any, summary: CharSequence) {
+    internal fun setPreferenceSummary(pref: Any, summary: CharSequence) {
         try {
             XposedHelpers.callMethod(pref, "setSummary", summary)
         } catch (t: Throwable) {
+            log("setSummary unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated n")
             try {
                 XposedHelpers.callMethod(pref, "n", summary)
             } catch (e: Throwable) {
@@ -822,10 +626,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setPreferenceIntent(pref: Any, intent: Intent) {
+    internal fun setPreferenceIntent(pref: Any, intent: Intent) {
         try {
             XposedHelpers.callMethod(pref, "setIntent", intent)
         } catch (t: Throwable) {
+            log("setIntent unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated s")
             try {
                 XposedHelpers.setObjectField(pref, "s", intent)
             } catch (e: Throwable) {
@@ -834,10 +639,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setPreferenceChecked(pref: Any, checked: Boolean) {
+    internal fun setPreferenceChecked(pref: Any, checked: Boolean) {
         try {
             XposedHelpers.callMethod(pref, "setChecked", checked)
         } catch (t: Throwable) {
+            log("setChecked unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated k")
             try {
                 XposedHelpers.callMethod(pref, "k", checked)
             } catch (e: Throwable) {
@@ -846,10 +652,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setOnPreferenceChangeListener(pref: Any, listener: Any) {
+    internal fun setOnPreferenceChangeListener(pref: Any, listener: Any) {
         try {
             XposedHelpers.callMethod(pref, "setOnPreferenceChangeListener", listener)
         } catch (t: Throwable) {
+            log("setOnPreferenceChangeListener unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated n")
             try {
                 XposedHelpers.setObjectField(pref, "n", listener)
             } catch (e: Throwable) {
@@ -858,10 +665,11 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun setOnPreferenceClickListener(pref: Any, listener: Any) {
+    internal fun setOnPreferenceClickListener(pref: Any, listener: Any) {
         try {
             XposedHelpers.callMethod(pref, "setOnPreferenceClickListener", listener)
         } catch (t: Throwable) {
+            log("setOnPreferenceClickListener unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated o")
             try {
                 XposedHelpers.setObjectField(pref, "o", listener)
             } catch (e: Throwable) {
@@ -870,7 +678,7 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun hookPreferenceFragments(classLoader: ClassLoader) {
+    internal fun hookPreferenceFragments(classLoader: ClassLoader) {
         if (preferenceHooksApplied) return
         try {
             val prefFragmentClasses = listOf(
@@ -882,32 +690,46 @@ class PluginEntry : IXposedHookLoadPackage {
             val preferenceGroupClass = try {
                 XposedHelpers.findClass("androidx.preference.PreferenceGroup", classLoader)
             } catch (t: Throwable) {
+                log("Could not find androidx.preference.PreferenceGroup: ${t.message}")
                 null
             }
 
             for (className in prefFragmentClasses) {
                 try {
                     val clazz = XposedHelpers.findClass(className, classLoader)
+                    logAlways("Found PreferenceFragment class: $className")
                     val methodsToHook = ArrayList<java.lang.reflect.Method>()
                     
                     try {
                         val m = XposedHelpers.findMethodExact(clazz, "addPreferencesFromResource", Int::class.javaPrimitiveType)
                         methodsToHook.add(m)
-                    } catch (t: Throwable) {}
+                        logAlways("Found addPreferencesFromResource in $className")
+                    } catch (t: Throwable) {
+                        log("addPreferencesFromResource method not found in $className")
+                    }
 
                     try {
                         val m = XposedHelpers.findMethodExact(clazz, "bb", Int::class.javaPrimitiveType)
                         methodsToHook.add(m)
-                    } catch (t: Throwable) {}
+                        logAlways("Found bb in $className")
+                    } catch (t: Throwable) {
+                        log("bb method not found in $className")
+                    }
 
                     if (preferenceGroupClass != null) {
                         try {
                             val m = XposedHelpers.findMethodExact(clazz, "bc", Int::class.javaPrimitiveType, preferenceGroupClass)
                             methodsToHook.add(m)
-                        } catch (t: Throwable) {}
+                            logAlways("Found bc in $className")
+                        } catch (t: Throwable) {
+                            log("bc method not found in $className")
+                        }
                     }
 
-                    if (methodsToHook.isEmpty()) continue
+                    if (methodsToHook.isEmpty()) {
+                        logAlways("No methods found to hook in $className")
+                        continue
+                    }
 
                     val methodHook = object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
@@ -934,6 +756,7 @@ class PluginEntry : IXposedHookLoadPackage {
                                                 try {
                                                     XposedHelpers.callMethod(pref, "v")
                                                 } catch (e: Throwable) {
+                                                    log("getTitle and fallback 'v' both failed: ${e.message}")
                                                     null
                                                 }
                                             }?.toString()
@@ -1128,7 +951,7 @@ class PluginEntry : IXposedHookLoadPackage {
                                                  else -> null
                                              }
                                          } else {
-                                             try { context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:${PluginEntry.PACKAGE_NAME}"))) } catch (e: Exception) {}
+                                             try { context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:${PluginEntry.PACKAGE_NAME}"))) } catch (e: Exception) { log("Failed to open app settings: ${e.message}") }
                                              true
                                          }
                                      }
@@ -1136,6 +959,26 @@ class PluginEntry : IXposedHookLoadPackage {
                                      
                                      insertPreferenceAfter("settings_header_help_and_feedback", forceStopPref)
                                      insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("log_switch", false))
+                                     
+                                     // Experimental Features
+                                     try {
+                                         val prefCategoryClass = try {
+                                             XposedHelpers.findClass("androidx.preference.PreferenceCategory", classLoader)
+                                         } catch(e: Throwable) {
+                                             XposedHelpers.findClass("android.support.v7.preference.PreferenceCategory", classLoader)
+                                         }
+                                         val expCategory = XposedHelpers.newInstance(prefCategoryClass, context)
+                                         setPreferenceKey(expCategory, "settings_header_experimental")
+                                         setPreferenceTitle(expCategory, Localization.getString("settings_header_experimental_title"))
+                                         insertPreferenceAfter("settings_header_help_and_feedback", expCategory)
+                                         insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("enable_inline_suggestions", false))
+                                         insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("enable_proactive_emoji", false))
+                                         insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("enable_clipboard_chips", false))
+                                         insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("enable_tflite_engine", false))
+                                         insertPreferenceAfter("settings_header_help_and_feedback", createSwitch("enable_fast_access", false))
+                                     } catch (t: Throwable) {
+                                         log("Failed to create experimental category: ${t.message}")
+                                     }
 
                                      // Now reorder
                                      try {
@@ -1237,192 +1080,10 @@ class PluginEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun hookReadConfig(dexMethod: DexMethod, classLoader: ClassLoader) {
-        val methodName = dexMethod.name
-        val className = dexMethod.className
-        val tag = "$className#$methodName"
-        log("Hooking ReadConfig method: $tag")
-        tryHook(tag) {
-            findAndHookMethod(
-                className, classLoader, methodName,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            val name = getFlagName(param.thisObject)
-                            if (name == null) {
-                                log("Flag name field is null or unresolved")
-                                return
-                            }
-
-                            val overrideTrueVal = if (name.endsWith("_language_tags") || name.endsWith("_locales") || name.endsWith("_countries")) "*" else true
-                            val overrideFalseVal = if (name.endsWith("_language_tags") || name.endsWith("_locales") || name.endsWith("_countries")) "" else false
-
-                            // Default clipboard entity extraction overrides
-                            if (name == "enable_clipboard_entity_extraction"
-                                || name == "enable_clipboard_query_refactoring"
-                            ) {
-                                param.result = overrideFalseVal
-                                return
-                            }
-
-                            if (enablePrivacy) {
-                                if (name == "disable_correction_storage" ||
-                                    name == "disable_content_capture_for_input_view" ||
-                                    name == "deprecate_native_log_event"
-                                ) {
-                                    param.result = overrideTrueVal
-                                    if (logSwitch) log("Privacy: Overrode flag $name to $overrideTrueVal")
-                                    return
-                                }
-                                if (name == "always_log_speed_stats" ||
-                                    name == "enable_logging_for_emoji_search_query" ||
-                                    name == "enable_internal_speech_enhancement_pii_logging" ||
-                                    name == "enable_report_from_training_cache" ||
-                                    name == "enable_chinese_training_cache" ||
-                                    name == "enable_spell_checker_training_cache" ||
-                                    name == "enable_training_cache_metrics_processors" ||
-                                    name == "enable_conversation_id_in_training_cache" ||
-                                    name == "enable_auto_correction_stats" ||
-                                    name == "enable_metric_counts_stats" ||
-                                    name == "enable_spatial_stats" ||
-                                    name == "enable_spell_checker_stats" ||
-                                    name == "enable_typo_stats" ||
-                                    name == "voice_donation_promo_banner" ||
-                                    name == "voice_donation_confirm_banner"
-                                ) {
-                                    param.result = overrideFalseVal
-                                    if (logSwitch) log("Privacy: Overrode flag $name to $overrideFalseVal")
-                                    return
-                                }
-                            }
-
-                            // Overrides
-                            if (enableAi && (
-                                name == "enable_ai_core_llm" ||
-                                name == "enable_ai_core_smart_reply" ||
-                                name == "enable_emojify" ||
-                                name == "enable_emojify_settings_option" ||
-                                name == "enable_smart_reply" ||
-                                name == "enable_smart_compose" ||
-                                name == "enable_smart_compose_inline_suggestions" ||
-                                name == "enable_inline_suggestions" ||
-                                name == "enable_inline_suggestions_on_all_apps" ||
-                                name == "enable_custom_sticker_tab" ||
-                                name == "enable_custom_sticker_lol_fix" ||
-                                name == "enable_custom_sticker_naive_prompt_expander" ||
-                                name == "enable_sticker_predictions_while_typing" ||
-                                name == "enable_animated_emoji_content_suggestions" ||
-                                name == "show_animated_emoji_in_expression_moment" ||
-                                name == "enable_emojify_language_tags" ||
-                                name == "enable_emojify_model_language_tags" ||
-                                name == "enable_expression_moment_language_tags" ||
-                                name == "enable_expression_moment_proactive_emoji_kitchen_language_tags" ||
-                                name == "enable_dynamic_art_language_tags" ||
-                                name == "enable_tenor_trending_term_v2_for_language_tags"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (enableGrammar && (
-                                name == "enable_grammar_checker" ||
-                                name == "enable_on_device_proofread" ||
-                                name == "enable_llm_based_grammar_checker" ||
-                                name == "enable_writing_tools_cooperative_mode" ||
-                                name == "enable_text_conversion" ||
-                                name == "enable_highlight_voice_reconversion_composing_text" ||
-                                name == "nga_enable_undo_delete" ||
-                                name == "enable_proofread" ||
-                                name == "enable_pk_auto_correction_locales"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (enableMultilingual && (
-                                name == "enable_multilingual_typing" ||
-                                name == "enable_crank_for_first_supported_locale_in_multilingual" ||
-                                name == "enable_crank_for_primary_locale_in_multilingual" ||
-                                name == "enable_more_candidates_view_for_multilingual" ||
-                                name == "enable_auto_multi_lang_on_all_pixel_devices" ||
-                                name == "enable_speech_enhancement_for_multilang_users"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (enableFloating && (
-                                name == "enable_auto_float_keyboard_in_landscape" ||
-                                name == "enable_auto_float_keyboard_in_multi_window" ||
-                                name == "enable_auto_float_keyboard_in_freeform" ||
-                                name == "enable_split_keyboard_on_tablet_large" ||
-                                name == "enable_dynamic_font_size_slider" ||
-                                name == "enable_split_keyboard" ||
-                                name == "enable_tablet_split_keyboard" ||
-                                name == "enable_enter_exit_animation"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (enableEmojiKitchen && (
-                                name == "enable_emoji_kitchen_browse" ||
-                                name == "enable_emoji_kitchen_browse_entry_point_v2" ||
-                                name == "enable_emoji_kitchen_for_zero_state_emojis" ||
-                                name == "enable_embedded_photo_picker" ||
-                                name == "enable_emoji_search_v2" ||
-                                name == "enable_emoji_recommendations" ||
-                                name == "enable_play_emoji_kitchen_mix_animation"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (enableAccessPoint && (
-                                name == "enable_access_points_menu_redesign" ||
-                                name == "enable_access_point_keyboard" ||
-                                name == "use_silk_theme_by_default" ||
-                                name == "use_system_font" ||
-                                name == "enable_custom_themes" ||
-                                name == "enable_silk_theme" ||
-                                name == "enable_candidates_access_points_switching_animation" ||
-                                name == "keyboard_redesign_google_sans" ||
-                                name == "keyboard_redesign_forbid_key_shadows"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-                            if (meteredDownloads && (
-                                name == "allow_language_pack_downloads_on_metered_connections" ||
-                                name == "allow_metered_network_to_download_langid_model" ||
-                                name == "allow_metered_small_speech_pack_downloads" ||
-                                name == "force_speech_language_pack_updates"
-                            )) {
-                                param.result = overrideTrueVal
-                                if (logSwitch) log("Overrode flag $name to $overrideTrueVal")
-                                return
-                            }
-
-
-                        } catch (t: Throwable) {
-                            // Prevent keyboard crash on override checks
-                        }
-                    }
-                }
-            )
-        }
-    }
 }
 
 object Localization {
-    private val translations = mapOf(
+    internal val translations = mapOf(
         "ar" to mapOf(
             "category_title" to "إعدادات KeyFlux",
             "enable_ai_title" to "ميزات الكتابة الذكية",
@@ -1456,7 +1117,18 @@ object Localization {
             "force_stop_title" to "تطبيق التغييرات (إيقاف إجباري)",
             "force_stop_summary" to "إعادة تشغيل الكيبورد لتطبيق الإعدادات الجديدة",
             "forever" to "للأبد",
-            "days" to "أيام"
+            "days" to "أيام",
+            "settings_header_experimental_title" to "الميزات التجريبية والذكاء الاصطناعي",
+            "enable_inline_suggestions_title" to "اقتراحات النصوص الذكية المدمجة",
+            "enable_inline_suggestions_summary" to "اقتراح جمل كاملة أو كلمات متعددة وتكملتها بسحبة واحدة",
+            "enable_proactive_emoji_title" to "مطبخ الإيموجي الاستباقي",
+            "enable_proactive_emoji_summary" to "اقتراحات تفاعلية ومتحركة لدمج الإيموجيات أثناء الكتابة",
+            "enable_clipboard_chips_title" to "أزرار الحافظة السريعة",
+            "enable_clipboard_chips_summary" to "إظهار أزرار ذكية ولصق سريع واستخراج بيانات عند نسخ أي نص",
+            "enable_tflite_engine_title" to "محرك الذكاء الاصطناعي TFLite",
+            "enable_tflite_engine_summary" to "تشغيل محرك الشبكات العصبية محلياً لتوقع كلمات وإيموجي بدقة فائقة",
+            "enable_fast_access_title" to "شريط الوصول السريع الجديد",
+            "enable_fast_access_summary" to "تفعيل شريط الوصول السريع وخيارات التصميم الحديثة (Google Sans)"
         ),
         "fa" to mapOf(
             "category_title" to "تنظیمات KeyFlux",
@@ -1736,7 +1408,18 @@ object Localization {
             "force_stop_title" to "Apply Changes (Force Stop)",
             "force_stop_summary" to "Restart Gboard to apply settings",
             "forever" to "Forever",
-            "days" to "days"
+            "days" to "days",
+            "settings_header_experimental_title" to "AI & Experimental Features",
+            "enable_inline_suggestions_title" to "Inline Multiword Suggestions",
+            "enable_inline_suggestions_summary" to "Smart Compose-like suggestions for entire sentences inline",
+            "enable_proactive_emoji_title" to "Proactive Emoji Kitchen",
+            "enable_proactive_emoji_summary" to "Interactive and animated emoji mashup suggestions while typing",
+            "enable_clipboard_chips_title" to "Clipboard Action Chips",
+            "enable_clipboard_chips_summary" to "Smart action buttons for quick paste and data extraction on copy",
+            "enable_tflite_engine_title" to "TFLite AI Engine",
+            "enable_tflite_engine_summary" to "Run local neural network for highly accurate next-word and emoji prediction",
+            "enable_fast_access_title" to "New Fast Access Bar",
+            "enable_fast_access_summary" to "Enable the new fast access toolbar and Google Sans redesign"
         )
     )
 

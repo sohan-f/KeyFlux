@@ -4,22 +4,30 @@ KeyFlux is an advanced LSPosed/Xposed module designed to enhance and customize t
 
 It unlocks hidden features, bypasses certain limitations, and integrates new capabilities directly into the native Gboard settings interface.
 
-## Features
+## 🚀 Features
 
 - **Enable Hidden Flags**: Easily toggle Gboard's internal Phenotype flags directly from the settings.
+- **Experimental & AI Features**: Unlock Google's latest hidden capabilities:
+  - 🧠 **TFLite Neural Engine**: Accelerate local AI response speed (`enable_nwp_tflite_engine`).
+  - ✨ **Proactive Emoji Kitchen**: Get smart emoji combinations on the fly (`enable_proactive_emoji_kitchen`, `enable_expression_moment`).
+  - 🪄 **Inline Smart Suggestions**: See multi-word predictions inline (`enable_inline_suggestions_on_decoder_side`).
+  - ⚡ **Fast Access Bar & Material Silk Design**: Enable the new UI redesign without key shadows and using Google Sans (`keyboard_redesign_google_sans`, `enable_fast_access_bar`).
+  - 📋 **Clipboard Action Chips**: Extract entities and get smart action chips for copied text (`enable_clipboard_action_chips`).
+- **Enhanced Clipboard History**: Bypass default clipboard limits. Customize the clipboard history retention duration (select specific days or keep forever).
 - **Multilingual Typing**: Enable concurrent multilingual typing support.
 - **Floating Keyboard Layouts**: Unlock hidden floating keyboard options and window layouts.
-- **Enhanced Clipboard History**: Bypass default clipboard limits. Customize the clipboard history retention duration (select specific days or keep forever).
 - **Native Integration**: All new options are injected directly into Gboard's native settings screens with matching layouts and icons for a seamless experience.
+- **Performance Optimized**: Uses Kotlin Coroutines and background thread scanning (`DexKit`) to prevent UI freezes and ensure maximum performance.
+- **Privacy Focused**: No sensitive data (like Clipboard content) is ever printed to Logcat.
 
-## Compatibility
+## 📱 Compatibility
 
 - **Android Versions**: Android 11 (API 30) through Android 15 (API 35).
 - **Architecture**: `arm64-v8a`
 - **Hook Framework**: LSPosed 1.8.x - 1.9.x (API 100/101 compatibility).
 - **Target App**: Google Gboard.
 
-## Installation
+## 🛠 Installation
 
 1. Install [LSPosed](https://github.com/LSPosed/LSPosed) on your rooted device.
 2. Download the latest KeyFlux APK from the [Releases](#) page and install it.
@@ -28,7 +36,7 @@ It unlocks hidden features, bypasses certain limitations, and integrates new cap
 5. Force stop Gboard to apply changes.
 6. Open Gboard settings to configure KeyFlux options.
 
-## Build Instructions
+## 🏗 Build Instructions
 
 To build the project locally, you need Android Studio and Gradle 8.5+.
 
@@ -40,6 +48,6 @@ To build the project locally, you need Android Studio and Gradle 8.5+.
 ./gradlew assembleRelease
 ```
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License.

@@ -13,16 +13,29 @@
 .externalNativeBuild
 .cxx
 local.properties
-AGENTS.md
-app/build/
-*.txt
-uidump.xml
-window_dump.xml
-screen*.png
-*.apk
-*.apkm
-decompiled_*
-extracted_apk/
-GboardHook/
-tools/
 
+# Log Files
+*.log
+*.txt
+
+# Exclude generated scripts and artifacts created during debug
+/*.py
+/*.sh
+/jadx*
+/gboard_decompiled/
+/*.apk
+/gboard_pkg.txt
+/activities.txt
+/packages.txt
+/logcat*.txt
+/full_logcat.txt
+/keyflux_test_log.txt
+/screen_*.png
+/*.png
+
+# Gradle
+.gradle/
+build/
+
+# App build
+app/build/
