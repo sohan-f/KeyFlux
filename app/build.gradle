@@ -7,14 +7,14 @@ plugins {
 
 android {
     namespace 'com.keyflux'
-    compileSdk 31
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.keyflux"
-        minSdk 23
-        targetSdk 31
-        versionCode 1
-        versionName "1.0.0"
+        minSdk 29
+        targetSdk 37
+        versionCode 2
+        versionName "2.0.0"
     }
 
     buildFeatures {
