@@ -22,10 +22,13 @@ It unlocks hidden features, bypasses certain limitations, and integrates new cap
 
 ## 📱 Compatibility
 
-- **Android Versions**: Android 11 (API 30) through Android 15 (API 35).
-- **Architecture**: `arm64-v8a`
-- **Hook Framework**: LSPosed 1.8.x - 1.9.x (API 100/101 compatibility).
-- **Target App**: Google Gboard.
+- **Android Versions**: Android 10 (API 29) through Android 17 (API 37).
+- **Architecture**: `arm64-v8a`, `x86_64`
+- **Hook Framework**: 
+  - [Vector](https://github.com/NawafCode/Vector) (Recommended)
+  - LSPosed 1.8.x - 1.9.x
+- **API Support**: 100 / 101 / 102 (Hot Reloading).
+- **Target App**: Google Gboard 13.x - 17.x.
 
 ## 🛠 Installation
 
