@@ -1,56 +1,105 @@
 # KeyFlux
 
-KeyFlux is an advanced LSPosed/Xposed module designed to enhance and customize the Google Keyboard (Gboard) experience. 
+KeyFlux is an LSPosed/Xposed module for customizing Google Keyboard (Gboard).
 
-It unlocks hidden features, bypasses certain limitations, and integrates new capabilities directly into the native Gboard settings interface.
+It focuses on exposing selected hidden or experimental Gboard options, improving clipboard behavior, and integrating additional settings into Gboard's native settings interface when supported by the installed Gboard version.
 
-## 🚀 Features
+## Features
 
-- **Enable Hidden Flags**: Easily toggle Gboard's internal Phenotype flags directly from the settings.
-- **Experimental & AI Features**: Unlock Google's latest hidden capabilities:
-  - 🧠 **TFLite Neural Engine**: Accelerate local AI response speed (`enable_nwp_tflite_engine`).
-  - ✨ **Proactive Emoji Kitchen**: Get smart emoji combinations on the fly (`enable_proactive_emoji_kitchen`, `enable_expression_moment`).
-  - 🪄 **Inline Smart Suggestions**: See multi-word predictions inline (`enable_inline_suggestions_on_decoder_side`).
-  - ⚡ **Fast Access Bar & Material Silk Design**: Enable the new UI redesign without key shadows and using Google Sans (`keyboard_redesign_google_sans`, `enable_fast_access_bar`).
-  - 📋 **Clipboard Action Chips**: Extract entities and get smart action chips for copied text (`enable_clipboard_action_chips`).
-- **Enhanced Clipboard History**: Bypass default clipboard limits. Customize the clipboard history retention duration (select specific days or keep forever).
-- **Multilingual Typing**: Enable concurrent multilingual typing support.
-- **Floating Keyboard Layouts**: Unlock hidden floating keyboard options and window layouts.
-- **Native Integration**: All new options are injected directly into Gboard's native settings screens with matching layouts and icons for a seamless experience.
-- **Performance Optimized**: Uses Kotlin Coroutines and background thread scanning (`DexKit`) to prevent UI freezes and ensure maximum performance.
-- **Privacy Focused**: No sensitive data (like Clipboard content) is ever printed to Logcat.
+* **Hidden Gboard Flags**
 
-## 📱 Compatibility
+  * Exposes selected internal Gboard flags through configurable settings.
+  * Availability may depend on the installed Gboard version.
 
-- **Android Versions**: Android 10 (API 29) through Android 17 (API 37).
-- **Architecture**: `arm64-v8a`, `x86_64`
-- **Hook Framework**: 
-  - [Vector](https://github.com/NawafCode/Vector) (Recommended)
-  - LSPosed 1.8.x - 1.9.x
-- **API Support**: 100 / 101 / 102 (Hot Reloading).
-- **Target App**: Google Gboard 13.x - 17.x.
+* **Experimental Features**
 
-## 🛠 Installation
+  * Optional toggles for selected experimental Gboard capabilities.
+  * Some features may depend on Google server-side configuration, Gboard version, device ROM, or Android version.
 
-1. Install [LSPosed](https://github.com/LSPosed/LSPosed) on your rooted device.
-2. Download the latest KeyFlux APK from the [Releases](#) page and install it.
-3. Open the LSPosed Manager app and enable the **KeyFlux** module.
-4. Make sure **Gboard** is selected in the scope of the module.
-5. Force stop Gboard to apply changes.
-6. Open Gboard settings to configure KeyFlux options.
+* **Clipboard Enhancements**
 
-## 🏗 Build Instructions
+  * Adds configurable clipboard history retention options.
+  * Supports longer retention behavior where compatible.
+  * Designed not to log clipboard contents or copied sensitive text.
 
-To build the project locally, you need Android Studio and Gradle 8.5+.
+* **Gboard Settings Integration**
+
+  * Injects KeyFlux options into supported Gboard settings screens.
+  * Attempts to match Gboard's native layout style where possible.
+
+* **Compatibility Fallbacks**
+
+  * Uses a safer initialization path with fallback hook handling.
+  * Prevents duplicate initialization within the same process.
+
+## Compatibility
+
+Compatibility may vary depending on Android version, ROM, Gboard version, and hook framework.
+
+### Tested / Targeted
+
+* **Target app:** Google Gboard
+* **Hook frameworks:**
+
+  * [Vector](https://github.com/NawafCode/Vector) recommended
+  * LSPosed-compatible frameworks may work, but behavior can vary
+* **Architecture:**
+
+  * `arm64-v8a`
+  * `x86_64`
+
+### Notes
+
+* Some hidden or experimental Gboard flags may not exist in every Gboard version.
+* Some features may be controlled remotely by Google and may not activate even if the local flag is enabled.
+* Samsung One UI and heavily modified ROMs may require additional fallback handling.
+
+## Installation
+
+1. Install an LSPosed-compatible hook framework on a rooted device.
+2. Download the latest KeyFlux APK from the Releases page.
+3. Install the APK.
+4. Enable the KeyFlux module in your hook framework manager.
+5. Select **Gboard** as the module scope.
+6. Force stop Gboard.
+7. Open Gboard settings and configure KeyFlux options.
+
+## Build Instructions
+
+To build the project locally:
 
 ```bash
-# Compile and build the debug APK
 ./gradlew assembleDebug
+```
 
-# Build the release APK
+For release builds:
+
+```bash
 ./gradlew assembleRelease
 ```
 
-## 📄 License
+## Privacy
+
+KeyFlux is designed not to log clipboard contents or copied sensitive text.
+
+If you find logs that expose sensitive data, please open an issue with the log context after removing private information.
+
+## Troubleshooting
+
+If KeyFlux does not load correctly:
+
+1. Make sure Gboard is selected in the module scope.
+2. Force stop Gboard after enabling the module.
+3. Reboot the device if needed.
+4. Check LSPosed/Vector logs.
+5. Open an issue and include:
+
+   * Android version
+   * ROM / device model
+   * Gboard version
+   * KeyFlux version
+   * Relevant LSPosed/Vector logs
+
+## License
 
 This project is licensed under the MIT License.
