@@ -25,6 +25,7 @@ import java.lang.System.loadLibrary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class PluginEntry : IXposedHookLoadPackage {
     companion object {
@@ -34,6 +35,7 @@ class PluginEntry : IXposedHookLoadPackage {
         const val DAY: Long = 1000 * 60 * 60 * 24
         const val DEFAULT_NUM = 10
         const val DEFAULT_TIME = DAY * 3
+        val isInitialized = AtomicBoolean(false)
     }
 
     init {
@@ -152,11 +154,14 @@ class PluginEntry : IXposedHookLoadPackage {
         XposedBridge.log("$TAG$str")
     }
 
-    internal var isInitialized = false
-
     internal fun initializeKeyFlux(context: Context, classLoader: ClassLoader) {
-        if (isInitialized) return
-        isInitialized = true
+        try {
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            logAlways("Gboard version: ${packageInfo.versionName} (${packageInfo.versionCode})")
+        } catch (t: Throwable) {
+            logAlways("Failed to get Gboard version info")
+        }
+        
         try {
             // Query KeyFlux ContentProvider to populate prefsMap
             loadPreferences(context)
@@ -218,18 +223,19 @@ class PluginEntry : IXposedHookLoadPackage {
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val packageName = lpparam.packageName
+        val processName = lpparam.processName
         val classLoader = lpparam.classLoader
 
-        if (packageName != PACKAGE_NAME) {
+        if (packageName != PACKAGE_NAME || processName != PACKAGE_NAME) {
             return
         }
 
         // Diagnostics / Load Info
-        logAlways("Plugin loaded: package=$packageName, moduleVersion=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        logAlways("Plugin loaded: package=$packageName, process=$processName, moduleVersion=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        logAlways("System info: SDK=${android.os.Build.VERSION.SDK_INT}, Device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
         logAlways("Initial config state: logSwitch=$logSwitch, enableAi=$enableAi, clipboardTextSize=$clipboardTextSize")
 
-        // Based on user feedback, ContextWrapper#attachBaseContext (the first solution) actually worked
-        // successfully for injection, but failed later at getPreferenceScreen. We will use it as the primary hook.
+        // Primary: ContextWrapper#attachBaseContext
         try {
             XposedHelpers.findAndHookMethod(
                 android.content.ContextWrapper::class.java,
@@ -238,8 +244,11 @@ class PluginEntry : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
-                            val context = param.args[0] as? Context ?: return
-                            initializeKeyFlux(context, classLoader)
+                            if (isInitialized.compareAndSet(false, true)) {
+                                logAlways("Selected context hook path: ContextWrapper#attachBaseContext")
+                                val context = param.args[0] as? Context ?: return
+                                initializeKeyFlux(context, classLoader)
+                            }
                         } catch (t: Throwable) {
                             logAlways("Error during ContextWrapper#attachBaseContext hook execution: ${t.message}")
                         }
@@ -248,6 +257,30 @@ class PluginEntry : IXposedHookLoadPackage {
             )
         } catch (t: Throwable) {
             logAlways("Failed to hook ContextWrapper#attachBaseContext: ${t.message}")
+        }
+
+        // Fallback: Application#attach
+        try {
+            XposedHelpers.findAndHookMethod(
+                Application::class.java,
+                "attach",
+                Context::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        try {
+                            if (isInitialized.compareAndSet(false, true)) {
+                                logAlways("Selected context hook path: Application#attach")
+                                val context = param.args[0] as? Context ?: return
+                                initializeKeyFlux(context, classLoader)
+                            }
+                        } catch (t: Throwable) {
+                            logAlways("Error during Application#attach hook execution: ${t.message}")
+                        }
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            logAlways("Failed to hook Application#attach: ${t.message}")
         }
 
         ClipboardHooker.hook(this, classLoader)
