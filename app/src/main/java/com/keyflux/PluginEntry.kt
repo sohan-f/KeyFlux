@@ -228,30 +228,9 @@ class PluginEntry : IXposedHookLoadPackage {
         logAlways("Plugin loaded: package=$packageName, moduleVersion=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         logAlways("Initial config state: logSwitch=$logSwitch, enableAi=$enableAi, clipboardTextSize=$clipboardTextSize")
 
-        // 1. Hook Application#attachBaseContext
+        // Hook Application#onCreate for reliable context retrieval on all Android 14+ including Samsung
         try {
-            findAndHookMethod(
-                Application::class.java,
-                "attachBaseContext",
-                Context::class.java,
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        try {
-                            val context = param.args.firstOrNull() as? Context ?: return
-                            initializeKeyFlux(context, classLoader)
-                        } catch (t: Throwable) {
-                            logAlways("Error during attachBaseContext hook execution: ${t.message}")
-                        }
-                    }
-                }
-            )
-        } catch (t: Throwable) {
-            logAlways("Failed to hook Application#attachBaseContext: ${t.message}")
-        }
-
-        // 2. Hook Application#onCreate
-        try {
-            findAndHookMethod(
+            XposedHelpers.findAndHookMethod(
                 Application::class.java,
                 "onCreate",
                 object : XC_MethodHook() {
@@ -267,6 +246,27 @@ class PluginEntry : IXposedHookLoadPackage {
             )
         } catch (t: Throwable) {
             logAlways("Failed to hook Application#onCreate: ${t.message}")
+        }
+
+        // Fallback: Hook Instrumentation#callApplicationOnCreate (Extremely reliable for OEM ROMs)
+        try {
+            XposedHelpers.findAndHookMethod(
+                android.app.Instrumentation::class.java,
+                "callApplicationOnCreate",
+                Application::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        try {
+                            val context = param.args[0] as? Context ?: return
+                            initializeKeyFlux(context, classLoader)
+                        } catch (t: Throwable) {
+                            logAlways("Error during Instrumentation hook: ${t.message}")
+                        }
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            logAlways("Failed to hook Instrumentation#callApplicationOnCreate: ${t.message}")
         }
 
         ClipboardHooker.hook(this, classLoader)
@@ -475,32 +475,74 @@ class PluginEntry : IXposedHookLoadPackage {
     internal var preferenceHooksApplied = false
 
     // Reflection helper wrappers for handling Gboard preference library obfuscation
-    internal fun getPreferenceScreen(fragment: Any): Any? {
-        return try {
-            XposedHelpers.callMethod(fragment, "getPreferenceScreen")
-        } catch (t: Throwable) {
-            log("getPreferenceScreen unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated")
-            try {
-                XposedHelpers.callMethod(fragment, "o")
-            } catch (e: Throwable) {
-                log("Failed to execute getPreferenceScreen: ${e.message}")
-                null
+    internal fun getPreferenceScreen(fragment: Any, classLoader: ClassLoader): Any? {
+        val preferenceGroupClass = try {
+            XposedHelpers.findClass("androidx.preference.PreferenceGroup", classLoader)
+        } catch (t: Throwable) { null }
+
+        try {
+            return XposedHelpers.callMethod(fragment, "getPreferenceScreen")
+        } catch (t: Throwable) {}
+        
+        try {
+            var clazz: Class<*>? = fragment.javaClass
+            while (clazz != null && clazz != Any::class.java) {
+                for (method in clazz.declaredMethods) {
+                    if (method.parameterTypes.isEmpty() && !method.returnType.isPrimitive && method.returnType != String::class.java && method.returnType != Context::class.java) {
+                        try {
+                            method.isAccessible = true
+                            val result = method.invoke(fragment)
+                            if (result != null) {
+                                if (preferenceGroupClass != null && preferenceGroupClass.isInstance(result)) {
+                                    logAlways("Found PreferenceScreen dynamically: ${method.name}")
+                                    return result
+                                }
+                                val resClassName = result.javaClass.name.lowercase()
+                                if (resClassName.contains("preferencescreen")) {
+                                    logAlways("Found PreferenceScreen dynamically (name): ${method.name}")
+                                    return result
+                                }
+                            }
+                        } catch (e: Throwable) {}
+                    }
+                }
+                clazz = clazz.superclass
             }
-        }
+        } catch (e: Throwable) {}
+        
+        log("getPreferenceScreen completely failed")
+        return null
     }
 
     internal fun getFragmentContext(fragment: Any): Context? {
-        return try {
-            XposedHelpers.callMethod(fragment, "getContext") as? Context
-        } catch (t: Throwable) {
-            log("getContext unobfuscated failed: ${t.javaClass.simpleName}, trying obfuscated")
-            try {
-                XposedHelpers.callMethod(fragment, "x") as? Context
-            } catch (e: Throwable) {
-                log("Failed to execute getFragmentContext: ${e.message}")
-                null
+        try {
+            return XposedHelpers.callMethod(fragment, "getContext") as? Context
+        } catch (t: Throwable) {}
+
+        try {
+            var clazz: Class<*>? = fragment.javaClass
+            while (clazz != null && clazz != Any::class.java) {
+                for (method in clazz.declaredMethods) {
+                    if (method.parameterTypes.isEmpty() && method.returnType == Context::class.java) {
+                        try {
+                            method.isAccessible = true
+                            val result = method.invoke(fragment) as? Context
+                            if (result != null) {
+                                logAlways("Found getContext method dynamically: ${method.name}")
+                                return result
+                            }
+                        } catch (e: Throwable) {}
+                    }
+                }
+                clazz = clazz.superclass
             }
-        }
+        } catch (e: Throwable) {}
+
+        // Fallback: Check if it's an android.app.Fragment
+        if (fragment is android.app.Fragment) return fragment.context
+        
+        log("getContext completely failed")
+        return null
     }
 
     internal fun findPreference(group: Any, key: String): Any? {
@@ -737,7 +779,14 @@ class PluginEntry : IXposedHookLoadPackage {
                                 val fragment = param.thisObject
                                 val fragmentClassName = fragment.javaClass.name
                                 log("afterHookedMethod called for $fragmentClassName")
-                                val screen = getPreferenceScreen(fragment)
+                                
+                                val screen = if (param.args.size >= 2 && preferenceGroupClass?.isInstance(param.args[1]) == true) {
+                                    log("Using param.args[1] as PreferenceScreen")
+                                    param.args[1]
+                                } else {
+                                    getPreferenceScreen(fragment, classLoader)
+                                }
+                                
                                 log("screen for $fragmentClassName: $screen")
                                 val context = getFragmentContext(fragment)
                                 log("context for $fragmentClassName: $context")
